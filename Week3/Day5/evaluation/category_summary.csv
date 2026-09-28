@@ -1,0 +1,5 @@
+category,cases,passes,pass_rate
+Factual / retrieval,8,8,1.0
+Scope guardrail,9,9,1.0
+Prediction sanity,6,6,1.0
+Multi-turn coherence,7,7,1.0

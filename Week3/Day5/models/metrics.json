@@ -1,0 +1,7 @@
+{
+  "holdout_year": 2025,
+  "n": 216,
+  "accuracy": 0.6574074074074074,
+  "macro_f1": 0.4302219836903857,
+  "ladder_baseline_accuracy": 0.6342592592592593
+}
