@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>NRP AI Voice Agent</title>
+
+    <style>
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #111827;
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .container {
+            width: 90%;
+            max-width: 700px;
+            background: #1f2937;
+            border-radius: 20px;
+            padding: 30px;
+            box-sizing: border-box;
+        }
+
+        h1 {
+            margin-top: 0;
+        }
+
+        .status {
+            padding: 12px;
+            background: #111827;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .conversation {
+            height: 300px;
+            overflow-y: auto;
+            background: #111827;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .message {
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        .user {
+            color: #93c5fd;
+        }
+
+        .agent {
+            color: #86efac;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        #startButton {
+            background: #22c55e;
+            color: white;
+        }
+
+        #stopButton {
+            background: #ef4444;
+            color: white;
+            display: none;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <h1>NRP AI Voice Agent</h1>
+
+    <div class="status" id="status">
+        Ready
+    </div>
+
+    <div class="conversation" id="conversation">
+        <div class="message agent">
+            <strong>Ahmed:</strong>
+            Assalam-o-Alaikum! Main Ahmed hoon from NRP.
+            Aap kis type ki property dhoond rahe hain?
+        </div>
+    </div>
+
+    <button id="startButton">
+        🎙️ Start Speaking
+    </button>
+
+    <button id="stopButton">
+        ⏹ Stop & Send
+    </button>
+
+</div>
+
+<script>
+const startButton = document.getElementById("startButton");
+const stopButton = document.getElementById("stopButton");
+const statusBox = document.getElementById("status");
+const conversation = document.getElementById("conversation");
+
+let mediaRecorder = null;
+let audioChunks = [];
+let sessionId = "voice-" + crypto.randomUUID();
+let stream = null;
+
+
+function addMessage(role, text) {
+    const div = document.createElement("div");
+    div.className = "message " + role;
+
+    const name = role === "user"
+        ? "You"
+        : "Ahmed";
+
+    div.innerHTML =
+        `<strong>${name}:</strong> ${escapeHtml(text)}`;
+
+    conversation.appendChild(div);
+    conversation.scrollTop = conversation.scrollHeight;
+}
+
+
+function escapeHtml(text) {
+    const div = document.createElement("div");
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+
+async function startRecording() {
+    try {
+        console.log("Requesting microphone...");
+
+        stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+            }
+        });
+
+        const track = stream.getAudioTracks()[0];
+
+        console.log("MIC TRACK:", track);
+        console.log("MIC LABEL:", track.label);
+        console.log("MIC SETTINGS:", track.getSettings());
+
+        audioChunks = [];
+
+        let mimeType = "audio/webm";
+
+        if (
+            MediaRecorder.isTypeSupported(
+                "audio/webm;codecs=opus"
+            )
+        ) {
+            mimeType = "audio/webm;codecs=opus";
+        }
+
+        console.log("SELECTED MIME TYPE:", mimeType);
+
+        mediaRecorder = new MediaRecorder(stream, {
+            mimeType: mimeType
+        });
+
+        console.log(
+            "ACTUAL RECORDER MIME TYPE:",
+            mediaRecorder.mimeType
+        );
+
+        mediaRecorder.ondataavailable = event => {
+
+            console.log(
+                "AUDIO CHUNK:",
+                event.data.size,
+                event.data.type
+            );
+
+            if (event.data.size > 0) {
+                audioChunks.push(event.data);
+            }
+        };
+
+
+        mediaRecorder.onstop = async () => {
+
+            console.log(
+                "TOTAL AUDIO CHUNKS:",
+                audioChunks.length
+            );
+
+            const audioBlob = new Blob(
+                audioChunks,
+                {
+                    type: mediaRecorder.mimeType
+                }
+            );
+
+            console.log(
+                "FINAL AUDIO SIZE:",
+                audioBlob.size
+            );
+
+            console.log(
+                "FINAL AUDIO TYPE:",
+                audioBlob.type
+            );
+
+
+            if (audioBlob.size === 0) {
+                statusBox.textContent =
+                    "❌ No audio recorded.";
+
+                return;
+            }
+
+
+            /*
+             * IMPORTANT:
+             * Play the recording locally first.
+             * If you hear your own voice, the microphone
+             * and browser recording are working.
+             */
+
+            const previewUrl =
+                URL.createObjectURL(audioBlob);
+
+            const previewAudio =
+                new Audio(previewUrl);
+
+            previewAudio.controls = true;
+
+            previewAudio.style.display = "block";
+            previewAudio.style.width = "100%";
+            previewAudio.style.marginTop = "15px";
+
+            conversation.appendChild(previewAudio);
+
+            console.log(
+                "LOCAL AUDIO PREVIEW CREATED."
+            );
+
+
+            await sendAudio(audioBlob);
+        };
+
+
+        mediaRecorder.start(250);
+
+        console.log("RECORDING STARTED");
+
+        statusBox.textContent =
+            "🎙️ Listening...";
+
+        startButton.style.display = "none";
+        stopButton.style.display = "block";
+
+    } catch (error) {
+
+        console.error(
+            "MICROPHONE ERROR:",
+            error
+        );
+
+        statusBox.textContent =
+            "Microphone error: " + error.message;
+    }
+}
+
+
+function stopRecording() {
+
+    if (!mediaRecorder) {
+        return;
+    }
+
+    if (mediaRecorder.state !== "recording") {
+        return;
+    }
+
+    statusBox.textContent =
+        "⏳ Processing...";
+
+    console.log("STOPPING RECORDING...");
+
+    mediaRecorder.stop();
+
+    if (stream) {
+        stream.getTracks().forEach(
+            track => track.stop()
+        );
+    }
+
+    startButton.style.display = "block";
+    stopButton.style.display = "none";
+}
+
+
+async function sendAudio(audioBlob) {
+
+    console.log(
+        "SENDING AUDIO TO /voice..."
+    );
+
+    console.log(
+        "UPLOAD SIZE:",
+        audioBlob.size
+    );
+
+    console.log(
+        "UPLOAD TYPE:",
+        audioBlob.type
+    );
+
+
+    const formData = new FormData();
+
+    formData.append(
+        "audio",
+        audioBlob,
+        "recording.webm"
+    );
+
+    formData.append(
+        "session_id",
+        sessionId
+    );
+
+
+    try {
+
+        const response = await fetch(
+            "/voice",
+            {
+                method: "POST",
+                body: formData
+            }
+        );
+
+
+        if (!response.ok) {
+
+            const errorText =
+                await response.text();
+
+            console.error(
+                "VOICE API ERROR:",
+                errorText
+            );
+
+            throw new Error(errorText);
+        }
+
+
+        const encodedTranscript =
+            response.headers.get(
+                "X-Transcript"
+            ) || "";
+
+        const encodedReply =
+            response.headers.get(
+                "X-Agent-Reply"
+            ) || "";
+
+        const transcript =
+            encodedTranscript
+                ? decodeURIComponent(encodedTranscript)
+                : "";
+
+        const reply =
+            encodedReply
+                ? decodeURIComponent(encodedReply)
+                : "";
+
+
+        console.log(
+            "TRANSCRIPT:",
+            transcript
+        );
+
+        console.log(
+            "AGENT REPLY:",
+            reply
+        );
+
+
+        if (transcript) {
+            addMessage(
+                "user",
+                transcript
+            );
+        }
+
+
+        if (reply) {
+            addMessage(
+                "agent",
+                reply
+            );
+        }
+
+
+        const audioData =
+            await response.blob();
+
+        const audioUrl =
+            URL.createObjectURL(audioData);
+
+        const audio =
+            new Audio(audioUrl);
+
+
+        statusBox.textContent =
+            "🔊 Ahmed is speaking...";
+
+
+        audio.onended = () => {
+
+            URL.revokeObjectURL(audioUrl);
+
+            statusBox.textContent =
+                "Ready";
+        };
+
+
+        await audio.play();
+
+
+    } catch (error) {
+
+        console.error(
+            "VOICE REQUEST ERROR:",
+            error
+        );
+
+        statusBox.textContent =
+            "❌ Error: " + error.message;
+    }
+}
+
+
+startButton.addEventListener(
+    "click",
+    startRecording
+);
+
+stopButton.addEventListener(
+    "click",
+    stopRecording
+);
+</script>
+
+</body>
+</html>

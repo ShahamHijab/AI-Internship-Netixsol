@@ -1,0 +1,27 @@
+services:
+
+  api:
+    build: .
+    container_name: nrp-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: nrp-n8n
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_SECURE_COOKIE=false
+      - TZ=Asia/Karachi
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

@@ -1,0 +1,232 @@
+{
+  "name": "NRP Voice Agent - Call to CRM Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "nrp-call",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1a1a1a1a-0001-4000-8000-000000000001",
+      "name": "Incoming Call (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-1120, 300],
+      "notes": "Telephony layer (e.g. a Twilio Studio Flow or a custom STT service) POSTs here after transcribing the caller's utterance. Expected body: {call_id, session_id, transcript, client_email, client_name}."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.AGENT_BASE_URL}}/turn",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"session_id\": $json.session_id, \"message\": $json.transcript } }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "1a1a1a1a-0002-4000-8000-000000000002",
+      "name": "Intent Detection + Property Match (AI Agent)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [-880, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "notes": "Calls the FastAPI /turn endpoint (the LangGraph agent from the notebook). It returns {session_id, reply, intent}, and — when intent == 'book' and every required field (name/email/date/time/timezone) has been confirmed in conversation — an additional `appointment_request` object the rest of this workflow consumes. See docs/API_DOCUMENTATION.md."
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+                "conditions": [{"leftValue": "={{$json.intent}}", "rightValue": "book", "operator": {"type": "string", "operation": "equals"}}],
+                "combinator": "and"
+              },
+              "outputKey": "book"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+                "conditions": [{"leftValue": "={{$json.intent}}", "rightValue": "reschedule", "operator": {"type": "string", "operation": "equals"}}],
+                "combinator": "and"
+              },
+              "outputKey": "reschedule"
+            },
+            {
+              "conditions": {
+                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
+                "conditions": [{"leftValue": "={{$json.intent}}", "rightValue": "cancel", "operator": {"type": "string", "operation": "equals"}}],
+                "combinator": "and"
+              },
+              "outputKey": "cancel"
+            }
+          ]
+        },
+        "fallbackOutput": "other"
+      },
+      "id": "1a1a1a1a-0003-4000-8000-000000000003",
+      "name": "Route By Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [-640, 300],
+      "notes": "Branches into: book / reschedule / cancel / other (faq, recommend, objection, smalltalk, unsafe, end_call all fall through to 'other', which just returns the reply with no calendar/email/CRM side-effects)."
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "calendar": {"__rl": true, "mode": "list", "value": "primary"},
+        "start": "={{$json.appointment_request.start_iso}}",
+        "end": "={{$json.appointment_request.end_iso}}",
+        "additionalFields": {
+          "summary": "=Video Walkthrough - {{$json.appointment_request.property_id}} - {{$json.appointment_request.client_name}}",
+          "description": "=Overseas client walkthrough booked via AI voice agent. Notes: {{$json.appointment_request.notes}}",
+          "attendees": ["={{$json.appointment_request.client_email}}"],
+          "conferenceDataUi": {"conferenceDataValues": {"createRequest": {}}},
+          "timeZone": "={{$json.appointment_request.timezone}}"
+        }
+      },
+      "id": "1a1a1a1a-0004-4000-8000-000000000004",
+      "name": "Create Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [-380, 140],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {"googleCalendarOAuth2Api": {"id": "GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar - RealEstate Hub"}},
+      "notes": "Requires a Google Calendar OAuth2 credential in n8n (Settings > Credentials). Auto-creates a Google Meet link via conferenceDataUi."
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "calendar": {"__rl": true, "mode": "list", "value": "primary"},
+        "eventId": "={{$json.appointment_request.event_id}}",
+        "updateFields": {
+          "start": "={{$json.appointment_request.new_start_iso}}",
+          "end": "={{$json.appointment_request.new_end_iso}}",
+          "timeZone": "={{$json.appointment_request.timezone}}"
+        }
+      },
+      "id": "1a1a1a1a-0005-4000-8000-000000000005",
+      "name": "Reschedule Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [-380, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {"googleCalendarOAuth2Api": {"id": "GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar - RealEstate Hub"}}
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "calendar": {"__rl": true, "mode": "list", "value": "primary"},
+        "eventId": "={{$json.appointment_request.event_id}}"
+      },
+      "id": "1a1a1a1a-0006-4000-8000-000000000006",
+      "name": "Cancel Calendar Event",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [-380, 460],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {"googleCalendarOAuth2Api": {"id": "GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar - RealEstate Hub"}}
+    },
+    {
+      "parameters": {
+        "sendTo": "={{$env.RELATIONSHIP_MANAGER_EMAIL}}",
+        "subject": "=New NRP Video Walkthrough: {{$json.appointment_request.client_name}} - {{$json.appointment_request.property_id}}",
+        "message": "=Client: {{$json.appointment_request.client_name}} ({{$json.appointment_request.client_email}})<br>Property: {{$json.appointment_request.property_id}}<br>Meeting time: {{$json.start.dateTime}}<br>Meet link: {{$json.hangoutLink}}",
+        "options": {}
+      },
+      "id": "1a1a1a1a-0007-4000-8000-000000000007",
+      "name": "Notify Relationship Manager",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [-140, 140],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "credentials": {"gmailOAuth2": {"id": "GMAIL_CREDENTIAL_ID", "name": "Gmail - RealEstate Hub"}},
+      "notes": "Requires a Gmail OAuth2 credential in n8n. Fires only on the 'book' branch, after the calendar event (with its Meet link) has been created."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.AGENT_BASE_URL}}/crm/log",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"call_id\": $json.call_id, \"intent\": $json.intent, \"appointment_status\": $json.intent, \"event_id\": $json.id } }}",
+        "options": {"timeout": 10000}
+      },
+      "id": "1a1a1a1a-0008-4000-8000-000000000008",
+      "name": "Update CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [100, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 3000,
+      "notes": "POSTs to a /crm/log endpoint on the same FastAPI backend (add this alongside /turn — it should call the notebook's log_appointment()/log_call() functions). Runs after EVERY branch (book/reschedule/cancel/other) so every call is logged regardless of outcome."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"reply\": $json.reply } }}"
+      },
+      "id": "1a1a1a1a-0009-4000-8000-000000000009",
+      "name": "Respond To Caller System",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [340, 300],
+      "notes": "Returns the agent's spoken reply text to whatever triggered the webhook (e.g. your Twilio/telephony layer, which then runs TTS and plays it to the caller)."
+    }
+  ],
+  "connections": {
+    "Incoming Call (Webhook)": {
+      "main": [[{"node": "Intent Detection + Property Match (AI Agent)", "type": "main", "index": 0}]]
+    },
+    "Intent Detection + Property Match (AI Agent)": {
+      "main": [[{"node": "Route By Intent", "type": "main", "index": 0}]]
+    },
+    "Route By Intent": {
+      "main": [
+        [{"node": "Create Calendar Event", "type": "main", "index": 0}],
+        [{"node": "Reschedule Calendar Event", "type": "main", "index": 0}],
+        [{"node": "Cancel Calendar Event", "type": "main", "index": 0}],
+        [{"node": "Update CRM", "type": "main", "index": 0}]
+      ]
+    },
+    "Create Calendar Event": {
+      "main": [[{"node": "Notify Relationship Manager", "type": "main", "index": 0}]]
+    },
+    "Notify Relationship Manager": {
+      "main": [[{"node": "Update CRM", "type": "main", "index": 0}]]
+    },
+    "Reschedule Calendar Event": {
+      "main": [[{"node": "Update CRM", "type": "main", "index": 0}]]
+    },
+    "Cancel Calendar Event": {
+      "main": [[{"node": "Update CRM", "type": "main", "index": 0}]]
+    },
+    "Update CRM": {
+      "main": [[{"node": "Respond To Caller System", "type": "main", "index": 0}]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "pinData": {},
+  "versionId": "1",
+  "id": "nrp-voice-agent-automation",
+  "tags": ["nrp-capstone", "real-estate-voice-agent"]
+}

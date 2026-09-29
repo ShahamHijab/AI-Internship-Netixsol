@@ -1,3 +1,6 @@
 .env
 chroma_store
 .venv
+.venv-1
+credentials.json
+token.json
