@@ -1,36 +1,42 @@
 {
-  "name": "NRP Voice Agent - Call to CRM Automation",
   "nodes": [
     {
       "parameters": {
-        "path": "nrp-call",
         "httpMethod": "POST",
+        "path": "nrp-call",
         "responseMode": "responseNode",
         "options": {}
       },
-      "id": "1a1a1a1a-0001-4000-8000-000000000001",
+      "id": "e02e7f58-fa16-4d96-a165-bdea31a16f38",
       "name": "Incoming Call (Webhook)",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [-1120, 300],
+      "position": [
+        -736,
+        160
+      ],
+      "webhookId": "d967176f-75b5-405a-8391-a08cbc9f2919",
       "notes": "Telephony layer (e.g. a Twilio Studio Flow or a custom STT service) POSTs here after transcribing the caller's utterance. Expected body: {call_id, session_id, transcript, client_email, client_name}."
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{$env.AGENT_BASE_URL}}/turn",
+        "url": "=http://127.0.0.1:8000/turn",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ { \"session_id\": $json.session_id, \"message\": $json.transcript } }}",
+        "jsonBody": "={\n  \"session_id\": \"{{$json.body.session_id}}\",\n  \"message\": \"{{$json.body.message}}\"\n}",
         "options": {
-          "timeout": 10000
+          "timeout": 60000
         }
       },
-      "id": "1a1a1a1a-0002-4000-8000-000000000002",
+      "id": "557549c4-cc68-4137-9dce-b61e3f112942",
       "name": "Intent Detection + Property Match (AI Agent)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [-880, 300],
+      "position": [
+        -496,
+        160
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 2000,
@@ -42,100 +48,185 @@
           "values": [
             {
               "conditions": {
-                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
-                "conditions": [{"leftValue": "={{$json.intent}}", "rightValue": "book", "operator": {"type": "string", "operation": "equals"}}],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.appointment_request ? $json.intent : '__not_ready__' }}",
+                    "rightValue": "book",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "7fb346cd-0c91-4a88-9bf3-6e7483b32a56"
+                  }
+                ],
                 "combinator": "and"
-              },
-              "outputKey": "book"
+              }
             },
             {
               "conditions": {
-                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
-                "conditions": [{"leftValue": "={{$json.intent}}", "rightValue": "reschedule", "operator": {"type": "string", "operation": "equals"}}],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{$json.intent}}",
+                    "rightValue": "reschedule",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "cfc62131-57f9-4e9b-85fa-3f40a25f2e49"
+                  }
+                ],
                 "combinator": "and"
-              },
-              "outputKey": "reschedule"
+              }
             },
             {
               "conditions": {
-                "options": {"caseSensitive": true, "leftValue": "", "typeValidation": "strict"},
-                "conditions": [{"leftValue": "={{$json.intent}}", "rightValue": "cancel", "operator": {"type": "string", "operation": "equals"}}],
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent + ($json.appointment_request ? '-ready' : '-pending') }}",
+                    "rightValue": "cancel",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "135c4d9e-0898-4315-bfa8-bf8fb9e264d5"
+                  }
+                ],
                 "combinator": "and"
-              },
-              "outputKey": "cancel"
+              }
             }
           ]
         },
-        "fallbackOutput": "other"
+        "options": {}
       },
-      "id": "1a1a1a1a-0003-4000-8000-000000000003",
+      "id": "40615751-1317-4741-8d62-f914d9f434fb",
       "name": "Route By Intent",
       "type": "n8n-nodes-base.switch",
       "typeVersion": 3,
-      "position": [-640, 300],
+      "position": [
+        -256,
+        160
+      ],
       "notes": "Branches into: book / reschedule / cancel / other (faq, recommend, objection, smalltalk, unsafe, end_call all fall through to 'other', which just returns the reply with no calendar/email/CRM side-effects)."
     },
     {
       "parameters": {
-        "operation": "create",
-        "calendar": {"__rl": true, "mode": "list", "value": "primary"},
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary"
+        },
         "start": "={{$json.appointment_request.start_iso}}",
         "end": "={{$json.appointment_request.end_iso}}",
         "additionalFields": {
-          "summary": "=Video Walkthrough - {{$json.appointment_request.property_id}} - {{$json.appointment_request.client_name}}",
+          "attendees": [
+            "={{$json.appointment_request.client_email}}"
+          ],
+          "conferenceDataUi": {
+            "conferenceDataValues": {
+              "conferenceSolution": "hangoutsMeet"
+            }
+          },
           "description": "=Overseas client walkthrough booked via AI voice agent. Notes: {{$json.appointment_request.notes}}",
-          "attendees": ["={{$json.appointment_request.client_email}}"],
-          "conferenceDataUi": {"conferenceDataValues": {"createRequest": {}}},
-          "timeZone": "={{$json.appointment_request.timezone}}"
+          "summary": "=Video Walkthrough - {{$json.appointment_request.property_id}} - {{$json.appointment_request.client_name}}"
         }
       },
-      "id": "1a1a1a1a-0004-4000-8000-000000000004",
+      "id": "16d111af-bcf8-4482-b30a-6f93f0e47d6b",
       "name": "Create Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [-380, 140],
+      "position": [
+        0,
+        0
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": {"googleCalendarOAuth2Api": {"id": "GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar - RealEstate Hub"}},
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "XtL3e706DE1OWjuL",
+          "name": "Google Calendar account"
+        }
+      },
       "notes": "Requires a Google Calendar OAuth2 credential in n8n (Settings > Credentials). Auto-creates a Google Meet link via conferenceDataUi."
     },
     {
       "parameters": {
         "operation": "update",
-        "calendar": {"__rl": true, "mode": "list", "value": "primary"},
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary"
+        },
         "eventId": "={{$json.appointment_request.event_id}}",
         "updateFields": {
-          "start": "={{$json.appointment_request.new_start_iso}}",
           "end": "={{$json.appointment_request.new_end_iso}}",
-          "timeZone": "={{$json.appointment_request.timezone}}"
+          "start": "={{$json.appointment_request.new_start_iso}}"
         }
       },
-      "id": "1a1a1a1a-0005-4000-8000-000000000005",
+      "id": "549a5a27-f2a4-4659-bd82-4be0494d8572",
       "name": "Reschedule Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [-380, 300],
+      "position": [
+        0,
+        160
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": {"googleCalendarOAuth2Api": {"id": "GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar - RealEstate Hub"}}
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "XtL3e706DE1OWjuL",
+          "name": "Google Calendar account"
+        }
+      }
     },
     {
       "parameters": {
         "operation": "delete",
-        "calendar": {"__rl": true, "mode": "list", "value": "primary"},
-        "eventId": "={{$json.appointment_request.event_id}}"
+        "calendar": {
+          "__rl": true,
+          "mode": "list",
+          "value": "primary"
+        },
+        "eventId": "={{$json.appointment_request.event_id}}",
+        "options": {}
       },
-      "id": "1a1a1a1a-0006-4000-8000-000000000006",
+      "id": "947e503b-e3a6-43dc-ac2f-b1317a01aca0",
       "name": "Cancel Calendar Event",
       "type": "n8n-nodes-base.googleCalendar",
       "typeVersion": 1.3,
-      "position": [-380, 460],
+      "position": [
+        0,
+        320
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": {"googleCalendarOAuth2Api": {"id": "GOOGLE_CALENDAR_CREDENTIAL_ID", "name": "Google Calendar - RealEstate Hub"}}
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "XtL3e706DE1OWjuL",
+          "name": "Google Calendar account"
+        }
+      }
     },
     {
       "parameters": {
@@ -144,31 +235,45 @@
         "message": "=Client: {{$json.appointment_request.client_name}} ({{$json.appointment_request.client_email}})<br>Property: {{$json.appointment_request.property_id}}<br>Meeting time: {{$json.start.dateTime}}<br>Meet link: {{$json.hangoutLink}}",
         "options": {}
       },
-      "id": "1a1a1a1a-0007-4000-8000-000000000007",
+      "id": "8cea2781-4bfe-426d-89d4-3e94305dfa0b",
       "name": "Notify Relationship Manager",
       "type": "n8n-nodes-base.gmail",
       "typeVersion": 2.1,
-      "position": [-140, 140],
+      "position": [
+        240,
+        0
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 5000,
-      "credentials": {"gmailOAuth2": {"id": "GMAIL_CREDENTIAL_ID", "name": "Gmail - RealEstate Hub"}},
+      "webhookId": "616c2610-087a-40d1-a986-628a1c1bf45c",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "pPvEutIz0YekvjXO",
+          "name": "Gmail account"
+        }
+      },
       "notes": "Requires a Gmail OAuth2 credential in n8n. Fires only on the 'book' branch, after the calendar event (with its Meet link) has been created."
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{$env.AGENT_BASE_URL}}/crm/log",
+        "url": "=http://127.0.0.1:8000/crm/log",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ { \"call_id\": $json.call_id, \"intent\": $json.intent, \"appointment_status\": $json.intent, \"event_id\": $json.id } }}",
-        "options": {"timeout": 10000}
+        "options": {
+          "timeout": 10000
+        }
       },
-      "id": "1a1a1a1a-0008-4000-8000-000000000008",
+      "id": "1bd77ce5-9795-45b6-88a7-ab71ab4b9b2c",
       "name": "Update CRM",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [100, 300],
+      "position": [
+        480,
+        160
+      ],
       "retryOnFail": true,
       "maxTries": 3,
       "waitBetweenTries": 3000,
@@ -177,56 +282,127 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ { \"reply\": $json.reply } }}"
+        "responseBody": "={{ { \"reply\": $json.reply } }}",
+        "options": {}
       },
-      "id": "1a1a1a1a-0009-4000-8000-000000000009",
+      "id": "c9abfe4d-913a-495d-91c9-5658ab4e82ea",
       "name": "Respond To Caller System",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [340, 300],
+      "position": [
+        720,
+        160
+      ],
       "notes": "Returns the agent's spoken reply text to whatever triggered the webhook (e.g. your Twilio/telephony layer, which then runs TTS and plays it to the caller)."
     }
   ],
   "connections": {
     "Incoming Call (Webhook)": {
-      "main": [[{"node": "Intent Detection + Property Match (AI Agent)", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Intent Detection + Property Match (AI Agent)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Intent Detection + Property Match (AI Agent)": {
-      "main": [[{"node": "Route By Intent", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Route By Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Route By Intent": {
       "main": [
-        [{"node": "Create Calendar Event", "type": "main", "index": 0}],
-        [{"node": "Reschedule Calendar Event", "type": "main", "index": 0}],
-        [{"node": "Cancel Calendar Event", "type": "main", "index": 0}],
-        [{"node": "Update CRM", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Create Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reschedule Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Cancel Calendar Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Create Calendar Event": {
-      "main": [[{"node": "Notify Relationship Manager", "type": "main", "index": 0}]]
-    },
-    "Notify Relationship Manager": {
-      "main": [[{"node": "Update CRM", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Notify Relationship Manager",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Reschedule Calendar Event": {
-      "main": [[{"node": "Update CRM", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Update CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Cancel Calendar Event": {
-      "main": [[{"node": "Update CRM", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Update CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notify Relationship Manager": {
+      "main": [
+        [
+          {
+            "node": "Update CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
     "Update CRM": {
-      "main": [[{"node": "Respond To Caller System", "type": "main", "index": 0}]]
+      "main": [
+        [
+          {
+            "node": "Respond To Caller System",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
-  "active": false,
-  "settings": {
-    "executionOrder": "v1",
-    "saveManualExecutions": true,
-    "callerPolicy": "workflowsFromSameOwner",
-    "errorWorkflow": ""
-  },
   "pinData": {},
-  "versionId": "1",
-  "id": "nrp-voice-agent-automation",
-  "tags": ["nrp-capstone", "real-estate-voice-agent"]
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "d33383789944640a248860ca980f28ac12e1e3314f6030051cf0b333ecc21bc2"
+  }
 }
